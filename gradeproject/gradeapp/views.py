@@ -4,118 +4,87 @@ from django.shortcuts import render
 from dotenv import load_dotenv
 from .forms import FileUploadForm
 from .models import UploadedFile
-import openai
-import matplotlib.pyplot as plt
-import seaborn as sns
-import io
-import base64
+from openai import OpenAI
+import logging
 
-# Load environment variables from .env file
+# Configure logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Load environment variables
 load_dotenv()
 
-# Retrieve the API key from the environment
-api_key = os.getenv('OPENAI_API_KEY')
+# Initialize OpenAI client
+api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     raise ValueError("The OPENAI_API_KEY environment variable is not set.")
 
-# Initialize the OpenAI client
-openai.api_key = api_key
+client = OpenAI(api_key=api_key)
 
 def upload_file(request):
+    """
+    Handle file uploads and process them using OpenAI API.
+    """
     if request.method == 'POST':
         form = FileUploadForm(request.POST, request.FILES)
         if form.is_valid():
+            # Save the uploaded file
             uploaded_file = form.save()
             file_path = uploaded_file.file.path
-            # Process the file
-            analysis_result, images = process_file(file_path)
+
+            # Process the uploaded file
+            analysis_result = process_file(file_path)
+
+            # Render the result page with the analysis
             return render(request, 'analysis_result.html', {
                 'analysis_result': analysis_result,
-                'images': images
             })
     else:
         form = FileUploadForm()
     return render(request, 'upload.html', {'form': form})
 
-
 def process_file(file_path):
-    # Read the file into a DataFrame
+    """
+    Read the uploaded file and perform analysis using OpenAI.
+    """
     try:
+        # Read the CSV file into a DataFrame
         df = pd.read_csv(file_path)
-    except pd.errors.ParserError:
-        return "Error: The file could not be parsed. Please check the file format.", []
-    except FileNotFoundError:
-        return "Error: The file was not found. Please check the file path.", []
+        logging.debug(f"DataFrame loaded: {df.head()}")
 
-    # Generate textual analysis using GPT-4
-    analysis_result = generate_textual_analysis(df)
+        # Convert the DataFrame to a CSV string
+        csv_data = df.to_csv(index=False)
 
-    # Generate visualizations
-    images = generate_visualizations(df)
+        # Generate analysis using OpenAI API
+        return analyze_data_with_openai(csv_data)
+    except Exception as e:
+        logging.error(f"Error processing file: {e}")
+        return f"An error occurred while processing the file: {str(e)}"
 
-    return analysis_result, images
-
-
-def generate_textual_analysis(df):
-    # Convert DataFrame to CSV string
-    csv_data = df.to_csv(index=False)
-
-    # Create a prompt for OpenAI
+def analyze_data_with_openai(data):
+    """
+    Use OpenAI to analyze the given data and provide insights.
+    """
     prompt = (
-        "You are a data analyst. Analyze the following student results data and provide insights, "
-        "including trends, comparisons between different years, and any notable observations. "
-        "Present the analysis in a structured format:\n\n"
-        f"{csv_data}\n\n"
-        "Provide the analysis below:"
+        "You are a data analyst. You are analysing student grades in IB Diploma Programme."
+        "We are looking for a detailed numbered analysis of anything you find notable in this document. Analyze the following data and provide insights, "        
+        "including trends, key metrics, and notable observations."
+        "You can even try to compare data to links in the same document, or draw conclusions why students might be doing good or bad, as well as possible solutions to that.:\n\n"
+        f"{data}\n\n"
+        "Highlight key points and provide a concise summary"
     )
 
-    # Call OpenAI API
     try:
-        response = openai.ChatCompletion.create(
-            model='gpt-4',
-            messages=[{"role": "user", "content": prompt}],
+        # Call OpenAI's API
+        response = client.chat.completions.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are a data analyst."},
+                {"role": "user", "content": prompt}
+            ],
             max_tokens=1500,
             temperature=0.5
         )
-        # Extract and return the analysis
-        analysis = response.choices[0].message['content'].strip()
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        analysis = f"An error occurred while processing the file: {str(e)}"
-
-    return analysis
-
-
-def generate_visualizations(df):
-    images = []
-
-    # Ensure there are at least two columns to plot
-    if df.shape[1] < 2:
-        print("Not enough columns to generate a scatter plot.")
-        return images
-
-    # Select the first two columns for the scatter plot
-    x_col = df.columns[0]
-    y_col = df.columns[1]
-
-    # Create the scatter plot
-    plt.figure(figsize=(10, 6))
-    sns.scatterplot(data=df, x=x_col, y=y_col)
-    plt.title(f'Scatter Plot of {x_col} vs {y_col}')
-    plt.xlabel(x_col)
-    plt.ylabel(y_col)
-
-    # Save the plot to a BytesIO object
-    buffer = io.BytesIO()
-    plt.savefig(buffer, format='png')
-    buffer.seek(0)
-    image_png = buffer.getvalue()
-    buffer.close()
-
-    # Encode the image to base64
-    image_base64 = base64.b64encode(image_png).decode('utf-8')
-    images.append(image_base64)
-
-    # Close the plot to free memory
-    plt.close()
-
-    return images
+        logging.error(f"OpenAI API error: {e}")
+        return f"An error occurred while analyzing the data: {str(e)}"

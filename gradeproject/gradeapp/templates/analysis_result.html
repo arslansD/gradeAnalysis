@@ -5,17 +5,6 @@
 </head>
 <body>
     <h1>Analysis Result</h1>
-    <pre>{{ analysis_result }}</pre>
-    {% if image_url %}
-        <h2>Generated Visualization</h2>
-        <img src="{{ image_url }}" alt="Generated Visualization">
-    {% else %}
-        <p>No visualization available.</p>
-    {% endif %}
-
-    {% for image in images %}
-    <img src="data:image/png;base64,{{ image }}" alt="Visualization">
-    {% endfor %}
-
+    <p>{{ analysis_result }}</p>
 </body>
 </html>
