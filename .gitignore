@@ -4,9 +4,10 @@ __pycache__
 
 #virtual env
 .venv
-env
+**/.env
 
 #OS specific
 thumbs.db
 desktop.ini
 .DS_Store
+
